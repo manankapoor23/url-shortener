@@ -6,6 +6,8 @@ import (
 	"strconv"
 )
 
+// defining the constants such as the length of the shortCode to be generated
+// and the base62 chars
 const (
 	codeLength  = 7
 	base62Chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -15,7 +17,7 @@ const (
 var codeSpace = func() uint64 {
 	n := uint64(1)
 	for i := 0; i < codeLength; i++ {
-		n *= 62
+		n *= 62 // 62^7
 	}
 	return n
 }()

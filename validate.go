@@ -22,9 +22,10 @@ var (
 // ownHost is this shortener's hostname (rule 5).
 func validateURL(raw, ownHost string) (string, error) {
 	// Rule 7: normalize before anything else, so checks see the canonical form.
-	raw = strings.TrimSpace(raw)
+	// A string with spaces, tabs, and newlines at both ends is raw
+	raw = strings.TrimSpace(raw) // we are going to remove the whitespace and all from it /n , /t, /r etc
 
-	// Rule 3: max length.
+	// Rule 3: check the maxlength of the input url
 	if len(raw) > maxURLLength {
 		return "", errTooLong
 	}
@@ -41,10 +42,12 @@ func validateURL(raw, ownHost string) (string, error) {
 	}
 
 	// Rule 1 (continued): a web URL needs a host.
+	// u.Hostname() gives out the host without the port
 	host := strings.ToLower(u.Hostname())
 	if host == "" {
 		return "", errNotURL
 	}
+	// and u.Host gives out the full with the port
 	u.Host = strings.ToLower(u.Host) // Rule 7: lowercase host.
 
 	// Rule 4: no user:password@ part (e.g. https://paypal.com@evil.com).
@@ -62,10 +65,10 @@ func validateURL(raw, ownHost string) (string, error) {
 		return "", errPrivateHost
 	}
 
-	return u.String(), nil
+	return u.String(), nil // returns a string and an error
 }
 
-// isPrivateHost reports whether host is localhost or an IP literal for a
+// isPrivateHost is a function which reports whether host is localhost or an IP literal for a
 // loopback, private or link-local address. It does not resolve DNS, so a
 // domain that points to a private IP still passes.
 func isPrivateHost(host string) bool {
