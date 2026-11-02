@@ -1,0 +1,5 @@
+# VibeWise learning notes (local only)
+.vibe-wise/
+
+# Build output
+/url-shortener
