@@ -1,5 +1,8 @@
 # VibeWise learning notes (local only)
 .vibe-wise/
 
+# Secrets (see .env.example)
+.env
+
 # Build output
 /url-shortener

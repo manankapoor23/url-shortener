@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,8 +11,22 @@ import (
 	"testing"
 )
 
+// fakeChecker stands in for Safe Browsing so tests never call Google.
+type fakeChecker struct {
+	unsafe bool
+	err    error
+}
+
+func (f fakeChecker) isUnsafe(ctx context.Context, target string) (bool, error) {
+	return f.unsafe, f.err
+}
+
 func newTestServer() http.Handler {
-	srv := &server{store: newStore(), baseURL: "https://short.example", ownHost: "short.example"}
+	return newTestServerWith(fakeChecker{})
+}
+
+func newTestServerWith(c urlChecker) http.Handler {
+	srv := &server{store: newStore(), checker: c, baseURL: "https://short.example", ownHost: "short.example"}
 	return srv.routes()
 }
 
@@ -53,6 +69,31 @@ func TestShortenRejectsBadInput(t *testing.T) {
 	for body, want := range tests {
 		if rec := do(h, "POST", "/api/shorten", body); rec.Code != want {
 			t.Errorf("body %.40q: status %d, want %d", body, rec.Code, want)
+		}
+	}
+}
+
+func TestShortenRejectsFlaggedURL(t *testing.T) {
+	h := newTestServerWith(fakeChecker{unsafe: true})
+	rec := do(h, "POST", "/api/shorten", `{"url": "https://evil.example"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "flagged as unsafe") {
+		t.Fatalf("status %d, body %s; want 400 flagged", rec.Code, rec.Body)
+	}
+}
+
+// Fail closed: if the reputation check can't give a verdict, no link is created.
+func TestShortenFailsClosedWhenCheckUnavailable(t *testing.T) {
+	for _, err := range []error{errNoAPIKey, context.DeadlineExceeded, errors.New("safe browsing: status 500")} {
+		srv := &server{store: newStore(), checker: fakeChecker{err: err}, baseURL: "https://short.example", ownHost: "short.example"}
+		rec := do(srv.routes(), "POST", "/api/shorten", `{"url": "https://example.com"}`)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("%v: status %d, want 503", err, rec.Code)
+		}
+		if strings.Contains(rec.Body.String(), err.Error()) {
+			t.Errorf("%v: internal error leaked to user: %s", err, rec.Body)
+		}
+		if len(srv.store.codes) != 0 {
+			t.Errorf("%v: link was stored despite failed check", err)
 		}
 	}
 }

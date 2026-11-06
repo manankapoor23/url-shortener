@@ -2,25 +2,40 @@ package main
 
 import (
 	_ "embed"
+	"errors"
+	"io/fs"
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
+
+	"github.com/spf13/viper"
 )
 
 //go:embed static/index.html
 var indexHTML []byte
 
-func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+// loadConfig reads settings from .env (if present) and the environment.
+// Real environment variables win over .env, so a host's settings take priority.
+func loadConfig() *viper.Viper {
+	v := viper.New()
+	v.SetConfigFile(".env")
+	v.SetConfigType("env")
+	if err := v.ReadInConfig(); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		log.Fatalf("reading .env: %v", err)
 	}
+	v.AutomaticEnv()
+	v.SetDefault("PORT", "8080")
+	return v
+}
+
+func main() {
+	cfg := loadConfig()
+	port := cfg.GetString("PORT")
 
 	// BASE_URL is the public address short links are built from.
-	baseURL := strings.TrimRight(os.Getenv("BASE_URL"), "/")
+	baseURL := strings.TrimRight(cfg.GetString("BASE_URL"), "/")
 	if baseURL == "" {
 		baseURL = "http://localhost:" + port
 	}
@@ -29,7 +44,18 @@ func main() {
 		log.Fatalf("invalid BASE_URL %q", baseURL)
 	}
 
-	srv := &server{store: newStore(), baseURL: baseURL, ownHost: base.Hostname()}
+	apiKey := cfg.GetString("SAFE_BROWSING_API_KEY")
+	if apiKey == "" {
+		// Start anyway so existing links keep redirecting.
+		log.Print("SAFE_BROWSING_API_KEY not set: link creation will return 503")
+	}
+
+	srv := &server{
+		store:   newStore(),
+		checker: newSafeBrowsing(apiKey),
+		baseURL: baseURL,
+		ownHost: base.Hostname(),
+	}
 
 	httpServer := &http.Server{
 		Addr:    ":" + port,

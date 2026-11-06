@@ -12,6 +12,7 @@ const maxRequestBytes = 4 << 10 // 4 KB
 
 type server struct {
 	store   *store
+	checker urlChecker
 	baseURL string // e.g. http://localhost:8080, no trailing slash
 	ownHost string // hostname of baseURL, for validation rule 5
 }
@@ -56,6 +57,19 @@ func (s *server) handleShorten(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Validation errors describe the user's own input, so they're safe to show.
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Layer 2 runs before the store's lock, so a slow lookup never blocks redirects.
+	unsafe, err := s.checker.isUnsafe(r.Context(), normalized)
+	if err != nil {
+		// Fail closed: without a verdict, don't create the link.
+		log.Printf("reputation check: %v", err)
+		writeError(w, http.StatusServiceUnavailable, "link creation is temporarily unavailable, please try again later")
+		return
+	}
+	if unsafe {
+		writeError(w, http.StatusBadRequest, "this URL has been flagged as unsafe")
 		return
 	}
 
